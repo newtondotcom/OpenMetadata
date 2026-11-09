@@ -44,6 +44,7 @@ class McpPublicBaseUrlTest {
       sources
           .when(org.openmetadata.service.config.source.ConfigSources::deployment)
           .thenReturn(java.util.Optional.empty());
+      security.when(SecurityConfigurationManager::getCurrentAuthConfig).thenReturn(null);
       SystemRepository repository = org.mockito.Mockito.mock(SystemRepository.class);
       entity.when(Entity::getSystemRepository).thenReturn(repository);
       org.mockito.Mockito.when(repository.getOMBaseUrlConfigInternal())
@@ -115,6 +116,54 @@ class McpPublicBaseUrlTest {
   }
 
   @Test
+  void resolveFromStore_prefersOidcCallbackOriginOverLocalhostSystemUrl() {
+    try (MockedStatic<SettingsCache> cache = mockStatic(SettingsCache.class);
+        MockedStatic<SecurityConfigurationManager> security =
+            mockStatic(SecurityConfigurationManager.class);
+        MockedStatic<org.openmetadata.service.config.source.ConfigSources> sources =
+            mockStatic(org.openmetadata.service.config.source.ConfigSources.class);
+        MockedStatic<Entity> entity = mockStatic(Entity.class)) {
+      security.when(SecurityConfigurationManager::getCurrentMcpConfig).thenReturn(null);
+      cache
+          .when(
+              () ->
+                  SettingsCache.getSettingOrDefault(
+                      SettingsType.MCP_CONFIGURATION, null, MCPConfiguration.class))
+          .thenReturn(new MCPConfiguration());
+      sources
+          .when(org.openmetadata.service.config.source.ConfigSources::deployment)
+          .thenReturn(java.util.Optional.empty());
+
+      SystemRepository repository = org.mockito.Mockito.mock(SystemRepository.class);
+      entity.when(Entity::getSystemRepository).thenReturn(repository);
+      org.mockito.Mockito.when(repository.getOMBaseUrlConfigInternal())
+          .thenReturn(
+              new Settings()
+                  .withConfigType(SettingsType.OPEN_METADATA_BASE_URL_CONFIGURATION)
+                  .withConfigValue(
+                      new OpenMetadataBaseUrlConfiguration()
+                          .withOpenMetadataUrl("http://localhost:8585")));
+
+      org.openmetadata.schema.api.security.AuthenticationConfiguration auth =
+          new org.openmetadata.schema.api.security.AuthenticationConfiguration()
+              .withOidcConfiguration(
+                  new org.openmetadata.schema.security.client.OidcClientConfig()
+                      .withCallbackUrl("https://openmetadata.example.com/callback")
+                      .withServerUrl("http://localhost:8585"));
+      security.when(SecurityConfigurationManager::getCurrentAuthConfig).thenReturn(auth);
+
+      assertThat(McpPublicBaseUrl.resolveFromStore())
+          .isEqualTo("https://openmetadata.example.com");
+    }
+  }
+
+  @Test
+  void originOf_keepsBasePathBeforeCallback() {
+    assertThat(McpPublicBaseUrl.originOf("https://om.example.com/data-catalog/callback"))
+        .isEqualTo("https://om.example.com/data-catalog");
+  }
+
+  @Test
   void resolveFromStore_fallsBackToLocalDevWhenNothingConfigured() {
     try (MockedStatic<SettingsCache> cache = mockStatic(SettingsCache.class);
         MockedStatic<SecurityConfigurationManager> security =
@@ -123,6 +172,7 @@ class McpPublicBaseUrlTest {
             mockStatic(org.openmetadata.service.config.source.ConfigSources.class);
         MockedStatic<Entity> entity = mockStatic(Entity.class)) {
       security.when(SecurityConfigurationManager::getCurrentMcpConfig).thenReturn(null);
+      security.when(SecurityConfigurationManager::getCurrentAuthConfig).thenReturn(null);
       cache
           .when(
               () ->

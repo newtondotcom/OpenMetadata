@@ -546,8 +546,43 @@ public class AuthenticationCodeFlowHandler implements AuthServeletHandler {
         && Arrays.stream(prompt.split("\\s+")).anyMatch(FORCED_LOGIN_PROMPT::equalsIgnoreCase);
   }
 
+  /**
+   * MCP flow detection must accept every public origin we may have put on the request. OIDC {@code
+   * serverUrl} is often still localhost (#26311) while {@code mcpConfiguration.baseUrl} or the OIDC
+   * {@code callbackUrl} host is the real external URL — matching only {@code serverUrl} would miss
+   * the MCP callback and break authorize after baseUrl is configured.
+   */
   private boolean isMcpRedirectUri(String redirectUri) {
-    return (serverUrl + MCP_CALLBACK_PATH).equals(redirectUri);
+    if (nullOrEmpty(redirectUri)) {
+      return false;
+    }
+    for (String candidate : mcpCallbackCandidates()) {
+      if (redirectUri.equals(candidate)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private Set<String> mcpCallbackCandidates() {
+    Set<String> candidates = new HashSet<>();
+    addMcpCallbackCandidate(candidates, serverUrl);
+    addMcpCallbackCandidate(candidates, baseUrlOf(client == null ? null : client.getCallbackUrl()));
+    try {
+      MCPConfiguration mcp = SecurityConfigurationManager.getCurrentMcpConfig();
+      if (mcp != null && !nullOrEmpty(mcp.getBaseUrl())) {
+        addMcpCallbackCandidate(candidates, mcp.getBaseUrl().trim().replaceAll("/+$", ""));
+      }
+    } catch (Exception e) {
+      LOG.debug("Could not read MCP baseUrl for callback detection: {}", e.getMessage());
+    }
+    return candidates;
+  }
+
+  private static void addMcpCallbackCandidate(Set<String> candidates, String baseUrl) {
+    if (!nullOrEmpty(baseUrl)) {
+      candidates.add(baseUrl.replaceAll("/+$", "") + MCP_CALLBACK_PATH);
+    }
   }
 
   /**
@@ -1462,6 +1497,7 @@ public class AuthenticationCodeFlowHandler implements AuthServeletHandler {
             serverUrl + AUTH_CALLBACK_PATH,
             serverUrl + MCP_CALLBACK_PATH,
             landingPageOnCallbackHost());
+    trusted.addAll(mcpCallbackCandidates());
     trusted.addAll(listOrEmpty(authenticationConfiguration.getAdditionalTrustedRedirectUris()));
     return trusted;
   }
