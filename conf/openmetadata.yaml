@@ -459,6 +459,12 @@ scimConfiguration:
   enabled: ${SCIM_ENABLED:-false}
   identityProvider: ${SCIM_IDENTITY_PROVIDER:-"azure"}
 
+# MCP OAuth discovery advertises issuer = baseUrl + "/mcp". Leave baseUrl empty to fall back to
+# serverUrl.openMetadataUrl (OPENMETADATA_SERVER_URL). Set MCP_BASE_URL (or the UI / API) to the
+# external origin clients reach — e.g. https://openmetadata.example.com — without a trailing /mcp.
+mcpConfiguration:
+  baseUrl: ${MCP_BASE_URL:-}
+
 # Authorizer Configuration
 authorizerConfiguration:
   className: ${AUTHORIZER_CLASS_NAME:-org.openmetadata.service.security.DefaultAuthorizer}

@@ -31,6 +31,8 @@ class McpPublicBaseUrlTest {
     try (MockedStatic<SettingsCache> cache = mockStatic(SettingsCache.class);
         MockedStatic<SecurityConfigurationManager> security =
             mockStatic(SecurityConfigurationManager.class);
+        MockedStatic<org.openmetadata.service.config.source.ConfigSources> sources =
+            mockStatic(org.openmetadata.service.config.source.ConfigSources.class);
         MockedStatic<Entity> entity = mockStatic(Entity.class)) {
       security.when(SecurityConfigurationManager::getCurrentMcpConfig).thenReturn(null);
       cache
@@ -39,6 +41,9 @@ class McpPublicBaseUrlTest {
                   SettingsCache.getSettingOrDefault(
                       SettingsType.MCP_CONFIGURATION, null, MCPConfiguration.class))
           .thenReturn(null);
+      sources
+          .when(org.openmetadata.service.config.source.ConfigSources::deployment)
+          .thenReturn(java.util.Optional.empty());
       SystemRepository repository = org.mockito.Mockito.mock(SystemRepository.class);
       entity.when(Entity::getSystemRepository).thenReturn(repository);
       org.mockito.Mockito.when(repository.getOMBaseUrlConfigInternal())
@@ -74,10 +79,48 @@ class McpPublicBaseUrlTest {
   }
 
   @Test
+  void resolveFromStore_usesDeploymentBaseUrlWhenStoredRowLacksIt() {
+    MCPConfiguration storedWithoutBaseUrl = new MCPConfiguration().withEnabled(true);
+    MCPConfiguration deployment =
+        new MCPConfiguration().withBaseUrl("https://from-deployment.example.com/");
+
+    try (MockedStatic<SettingsCache> cache = mockStatic(SettingsCache.class);
+        MockedStatic<SecurityConfigurationManager> security =
+            mockStatic(SecurityConfigurationManager.class);
+        MockedStatic<org.openmetadata.service.config.source.ConfigSources> sources =
+            mockStatic(org.openmetadata.service.config.source.ConfigSources.class)) {
+      security.when(SecurityConfigurationManager::getCurrentMcpConfig).thenReturn(null);
+      cache
+          .when(
+              () ->
+                  SettingsCache.getSettingOrDefault(
+                      SettingsType.MCP_CONFIGURATION, null, MCPConfiguration.class))
+          .thenReturn(storedWithoutBaseUrl);
+
+      org.openmetadata.service.config.source.DeploymentConfig deploymentConfig =
+          org.mockito.Mockito.mock(org.openmetadata.service.config.source.DeploymentConfig.class);
+      org.openmetadata.service.config.source.DeploymentSetting deploymentSetting =
+          org.mockito.Mockito.mock(org.openmetadata.service.config.source.DeploymentSetting.class);
+      sources
+          .when(org.openmetadata.service.config.source.ConfigSources::deployment)
+          .thenReturn(java.util.Optional.of(deploymentConfig));
+      org.mockito.Mockito.when(deploymentConfig.setting(SettingsType.MCP_CONFIGURATION))
+          .thenReturn(java.util.Optional.of(deploymentSetting));
+      org.mockito.Mockito.when(deploymentSetting.value())
+          .thenReturn(org.openmetadata.schema.utils.JsonUtils.valueToTree(deployment));
+
+      assertThat(McpPublicBaseUrl.resolveFromStore())
+          .isEqualTo("https://from-deployment.example.com");
+    }
+  }
+
+  @Test
   void resolveFromStore_fallsBackToLocalDevWhenNothingConfigured() {
     try (MockedStatic<SettingsCache> cache = mockStatic(SettingsCache.class);
         MockedStatic<SecurityConfigurationManager> security =
             mockStatic(SecurityConfigurationManager.class);
+        MockedStatic<org.openmetadata.service.config.source.ConfigSources> sources =
+            mockStatic(org.openmetadata.service.config.source.ConfigSources.class);
         MockedStatic<Entity> entity = mockStatic(Entity.class)) {
       security.when(SecurityConfigurationManager::getCurrentMcpConfig).thenReturn(null);
       cache
@@ -86,6 +129,9 @@ class McpPublicBaseUrlTest {
                   SettingsCache.getSettingOrDefault(
                       SettingsType.MCP_CONFIGURATION, null, MCPConfiguration.class))
           .thenReturn(null);
+      sources
+          .when(org.openmetadata.service.config.source.ConfigSources::deployment)
+          .thenReturn(java.util.Optional.empty());
       entity.when(Entity::getSystemRepository).thenReturn(null);
 
       assertThat(McpPublicBaseUrl.resolveFromStore())
