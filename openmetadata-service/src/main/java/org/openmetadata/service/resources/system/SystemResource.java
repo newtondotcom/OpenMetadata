@@ -1664,7 +1664,11 @@ public class SystemResource {
 
       systemRepository.createOrUpdate(mcpSettings);
 
+      // Publish the request body immediately so discovery can resolve the new baseUrl even if the
+      // settings cache briefly returns a stale row before reload finishes.
+      SecurityConfigurationManager.getInstance().setCurrentMcpConfig(mcpConfig);
       SettingsCache.invalidateSettings(MCP_CONFIGURATION.toString());
+      SettingsCache.invalidateSettings(MCP_CONFIGURATION.value());
 
       SecurityConfigurationManager.getInstance().reloadSecuritySystem();
 

@@ -170,39 +170,7 @@ public class UserSSOOAuthProvider implements OAuthAuthorizationServerProvider {
    * database configuration.
    */
   private String getBaseUrl() {
-    try {
-      org.openmetadata.schema.api.configuration.MCPConfiguration mcpConfig =
-          org.openmetadata.service.security.auth.SecurityConfigurationManager.getCurrentMcpConfig();
-      if (mcpConfig != null && mcpConfig.getBaseUrl() != null) {
-        return mcpConfig.getBaseUrl();
-      }
-    } catch (Exception e) {
-      LOG.warn("Failed to get base URL from MCP config: {}", e.getMessage());
-    }
-
-    // Fallback to system settings
-    try {
-      org.openmetadata.service.jdbi3.SystemRepository systemRepo =
-          org.openmetadata.service.Entity.getSystemRepository();
-      org.openmetadata.schema.settings.Settings baseUrlSettings =
-          systemRepo.getOMBaseUrlConfigInternal();
-      if (baseUrlSettings != null) {
-        org.openmetadata.schema.api.configuration.OpenMetadataBaseUrlConfiguration baseUrlConfig =
-            (org.openmetadata.schema.api.configuration.OpenMetadataBaseUrlConfiguration)
-                baseUrlSettings.getConfigValue();
-        if (baseUrlConfig != null) {
-          return baseUrlConfig.getOpenMetadataUrl();
-        }
-      }
-    } catch (Exception e) {
-      LOG.warn("Failed to get base URL from system settings: {}", e.getMessage());
-    }
-
-    LOG.error(
-        "No base URL configured in MCP settings or system settings. "
-            + "Falling back to http://localhost:8585 — this is only suitable for local development. "
-            + "Configure a proper base URL for production deployments.");
-    return "http://localhost:8585";
+    return org.openmetadata.mcp.server.auth.util.McpPublicBaseUrl.resolveFromStore();
   }
 
   /**
