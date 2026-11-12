@@ -67,8 +67,8 @@ configSource:                  # optional; a missing block means these defaults
 | **DB** | A present stored value is never overwritten. Fields the stored value lacks are filled from deliberate deployment values. Later deployment changes are logged as ignored. | Allowed |
 
 - ENV on a group without a deployment block fails the start (`validateConfiguration`). The shipped
-  `conf/openmetadata.yaml` defines every group except MCP, so `mcpConfiguration` is stored only in
-  the database unless the file adds a block.
+  `conf/openmetadata.yaml` defines an `mcpConfiguration` block with `baseUrl: ${MCP_BASE_URL:-}` so
+  Helm/compose can set the OAuth issuer origin; other MCP fields still live mainly in the database.
 - Every ENV-mode setting is merged and validated before any is written. A start that stops
   therefore changes no setting, including the authorizer when the identity provider of the same
   security group is refused.

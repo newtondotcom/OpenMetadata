@@ -38,6 +38,7 @@ import org.openmetadata.mcp.server.auth.repository.OAuthClientRepository;
 import org.openmetadata.mcp.server.auth.repository.OAuthTokenRepository;
 import org.openmetadata.mcp.server.auth.util.ClientCredentialsExtractor;
 import org.openmetadata.mcp.server.auth.util.ClientCredentialsExtractor.InvalidClientCredentialsException;
+import org.openmetadata.mcp.server.auth.util.McpPublicBaseUrl;
 import org.openmetadata.mcp.server.auth.util.UriUtils;
 import org.openmetadata.schema.api.security.AuthenticationConfiguration;
 import org.openmetadata.schema.api.security.AuthenticationConfiguration.TokenValidationAlgorithm;
@@ -255,19 +256,34 @@ public class OAuthHttpStatelessServerTransportProvider extends HttpServletStatel
       org.openmetadata.schema.api.configuration.MCPConfiguration mcpConfig) {
     // Tokens must be checked against the reloaded security settings, not the ones at startup.
     this.jwtFilter = new JwtFilter(authConfig, authzConfig);
-    if (mcpConfig != null) {
-      if (mcpConfig.getAllowedOrigins() != null) {
-        updateAllowedOrigins(mcpConfig.getAllowedOrigins());
-        LOG.info(
-            "Updated CORS origins from configuration reload: {}", mcpConfig.getAllowedOrigins());
-      }
-      if (mcpConfig.getBaseUrl() != null && !mcpConfig.getBaseUrl().isEmpty()) {
-        rebuildMetadata(UriUtils.withoutTrailingSlash(mcpConfig.getBaseUrl()));
-      }
+    if (mcpConfig != null && mcpConfig.getAllowedOrigins() != null) {
+      updateAllowedOrigins(mcpConfig.getAllowedOrigins());
+      LOG.info(
+          "Updated CORS origins from configuration reload: {}", mcpConfig.getAllowedOrigins());
+    }
+    // Always rebuild: a blank MCP baseUrl must fall back to the system OpenMetadata URL, and a
+    // missed rebuild left discovery advertising the startup localhost issuer after baseUrl was
+    // saved.
+    rebuildMetadata(McpPublicBaseUrl.resolve(mcpConfig));
+  }
+
+  /**
+   * Discovery is read more often than config is reloaded. Rebuild from the stored MCP setting when
+   * the advertised issuer no longer matches, so a PUT of {@code baseUrl} cannot leave
+   * {@code localhost:8585/mcp} in place when the listener path did not run.
+   */
+  private void syncMetadataWithStoredBaseUrl() {
+    String baseUrl = McpPublicBaseUrl.resolveFromStore();
+    OAuthMetadata current = this.oauthMetadata;
+    String expectedIssuer = baseUrl + mcpEndpoint;
+    if (current == null
+        || current.getIssuer() == null
+        || !expectedIssuer.equals(current.getIssuer().toString())) {
+      rebuildMetadata(baseUrl);
     }
   }
 
-  private void rebuildMetadata(String baseUrl) {
+  private synchronized void rebuildMetadata(String baseUrl) {
     LOG.info("Rebuilding OAuth metadata with new base URL: {}", baseUrl);
     warnIfBaseUrlMissesContextPath(baseUrl, contextPath);
     List<String> supportedScopes = getSupportedScopesForProvider();
@@ -685,6 +701,7 @@ public class OAuthHttpStatelessServerTransportProvider extends HttpServletStatel
 
   private void handleMetadataRequest(HttpServletRequest request, HttpServletResponse response)
       throws IOException {
+    syncMetadataWithStoredBaseUrl();
     response.setContentType("application/json");
     setCorsHeaders(request, response);
     response.setStatus(200);
@@ -693,6 +710,7 @@ public class OAuthHttpStatelessServerTransportProvider extends HttpServletStatel
 
   private void handleProtectedResourceMetadataRequest(
       HttpServletRequest request, HttpServletResponse response) throws IOException {
+    syncMetadataWithStoredBaseUrl();
     response.setContentType("application/json");
     setCorsHeaders(request, response);
     response.setStatus(200);

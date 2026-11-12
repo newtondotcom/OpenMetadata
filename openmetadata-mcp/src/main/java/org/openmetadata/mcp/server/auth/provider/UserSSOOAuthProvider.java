@@ -170,39 +170,7 @@ public class UserSSOOAuthProvider implements OAuthAuthorizationServerProvider {
    * database configuration.
    */
   private String getBaseUrl() {
-    try {
-      org.openmetadata.schema.api.configuration.MCPConfiguration mcpConfig =
-          org.openmetadata.service.security.auth.SecurityConfigurationManager.getCurrentMcpConfig();
-      if (mcpConfig != null && mcpConfig.getBaseUrl() != null) {
-        return mcpConfig.getBaseUrl();
-      }
-    } catch (Exception e) {
-      LOG.warn("Failed to get base URL from MCP config: {}", e.getMessage());
-    }
-
-    // Fallback to system settings
-    try {
-      org.openmetadata.service.jdbi3.SystemRepository systemRepo =
-          org.openmetadata.service.Entity.getSystemRepository();
-      org.openmetadata.schema.settings.Settings baseUrlSettings =
-          systemRepo.getOMBaseUrlConfigInternal();
-      if (baseUrlSettings != null) {
-        org.openmetadata.schema.api.configuration.OpenMetadataBaseUrlConfiguration baseUrlConfig =
-            (org.openmetadata.schema.api.configuration.OpenMetadataBaseUrlConfiguration)
-                baseUrlSettings.getConfigValue();
-        if (baseUrlConfig != null) {
-          return baseUrlConfig.getOpenMetadataUrl();
-        }
-      }
-    } catch (Exception e) {
-      LOG.warn("Failed to get base URL from system settings: {}", e.getMessage());
-    }
-
-    LOG.error(
-        "No base URL configured in MCP settings or system settings. "
-            + "Falling back to http://localhost:8585 — this is only suitable for local development. "
-            + "Configure a proper base URL for production deployments.");
-    return "http://localhost:8585";
+    return org.openmetadata.mcp.server.auth.util.McpPublicBaseUrl.resolveFromStore();
   }
 
   /**
@@ -339,13 +307,16 @@ public class UserSSOOAuthProvider implements OAuthAuthorizationServerProvider {
 
       LOG.debug("Created pending auth request: {}", authRequestId);
 
-      // Use serverUrl + "/mcp/callback" as the redirectUri parameter for MCP flow detection.
-      // AuthenticationCodeFlowHandler.handleLogin() matches this against expectedMcpCallback
-      // to detect MCP flow, then uses the SSO-registered callback URL for the actual redirect_uri
-      // sent to the SSO provider. After auth, AuthCallbackServlet forwards to /mcp/callback.
-      String serverUrl =
-          SecurityConfigurationManager.getCurrentAuthConfig().getOidcConfiguration().getServerUrl();
-      String mcpCallbackUrl = serverUrl + "/mcp/callback";
+      // Use the public MCP origin + "/mcp/callback" as the redirectUri parameter for MCP flow
+      // detection. AuthenticationCodeFlowHandler.handleLogin() matches this against the MCP
+      // callback candidates (mcpConfiguration.baseUrl, OIDC callback origin, OIDC serverUrl),
+      // then uses the SSO-registered callback URL for the actual redirect_uri sent to the IdP.
+      // After auth, AuthCallbackServlet forwards to /mcp/callback.
+      // Do not use oidcConfiguration.serverUrl alone: it is routinely left at localhost (#26311)
+      // while mcpConfiguration.baseUrl / OIDC callbackUrl hold the public origin — discovery and
+      // this detect URL must agree or authorize keeps advertising localhost.
+      String mcpCallbackUrl =
+          UriUtils.withoutTrailingSlash(getBaseUrl()) + "/mcp/callback";
       LOG.info("Starting SSO redirect for MCP OAuth (MCP callback: {})", mcpCallbackUrl);
 
       HttpServletRequest wrappedRequest =

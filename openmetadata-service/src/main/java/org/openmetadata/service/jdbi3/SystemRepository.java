@@ -676,6 +676,12 @@ public class SystemRepository implements DeploymentSettingPreparer {
     if (settingsType == SettingsType.LOGIN_CONFIGURATION) {
       LoginAttemptCache.updateLoginConfiguration();
     }
+
+    // MCP OAuth issuer/CORS are derived from mcpConfiguration; a generic /settings write must
+    // rebuild them on this server (the dedicated /mcp/config endpoint also reloads explicitly).
+    if (settingsType == SettingsType.MCP_CONFIGURATION) {
+      SecurityConfigurationManager.getInstance().reloadSecuritySystem();
+    }
   }
 
   public void updateSetting(Settings setting) {

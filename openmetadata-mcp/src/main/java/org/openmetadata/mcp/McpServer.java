@@ -18,7 +18,7 @@ import org.openmetadata.mcp.prompts.DefaultPromptsContext;
 import org.openmetadata.mcp.server.auth.handlers.BasicAuthLoginServlet;
 import org.openmetadata.mcp.server.auth.jobs.OAuthTokenCleanupScheduler;
 import org.openmetadata.mcp.server.auth.provider.UserSSOOAuthProvider;
-import org.openmetadata.mcp.server.auth.util.UriUtils;
+import org.openmetadata.mcp.server.auth.util.McpPublicBaseUrl;
 import org.openmetadata.mcp.server.transport.JsonRpcErrorBody;
 import org.openmetadata.mcp.server.transport.OAuthHttpStatelessServerTransportProvider;
 import org.openmetadata.mcp.tools.DefaultToolContext;
@@ -26,7 +26,6 @@ import org.openmetadata.mcp.usage.McpUsageRecorder;
 import org.openmetadata.schema.api.configuration.MCPConfiguration;
 import org.openmetadata.schema.entity.app.mcp.McpToolCallUsage;
 import org.openmetadata.schema.utils.JsonUtils;
-import org.openmetadata.service.Entity;
 import org.openmetadata.service.OpenMetadataApplicationConfig;
 import org.openmetadata.service.apps.AbstractNativeApplication;
 import org.openmetadata.service.apps.ApplicationContext;
@@ -229,7 +228,7 @@ public class McpServer implements McpServerProvider {
       McpSchema.ServerCapabilities serverCapabilities = buildServerCapabilities();
       // Create unified OAuth provider for MCP authentication (supports both SSO and Basic Auth)
       // Get base URL from MCP configuration or system settings
-      String baseUrl = UriUtils.withoutTrailingSlash(getBaseUrlFromConfig());
+      String baseUrl = McpPublicBaseUrl.resolveFromStore();
       LOG.info("MCP OAuth initialized with base URL: {}", baseUrl);
       OAuthHttpStatelessServerTransportProvider.warnIfBaseUrlMissesContextPath(
           baseUrl, contextHandler.getContextPath());
@@ -477,20 +476,6 @@ public class McpServer implements McpServerProvider {
     }
   }
 
-  private String getBaseUrlFromConfig() {
-    try {
-      org.openmetadata.schema.api.configuration.MCPConfiguration mcpConfig =
-          SecurityConfigurationManager.getCurrentMcpConfig();
-      if (mcpConfig != null && mcpConfig.getBaseUrl() != null) {
-        LOG.info("Base URL retrieved from MCP configuration: {}", mcpConfig.getBaseUrl());
-        return mcpConfig.getBaseUrl();
-      }
-    } catch (Exception e) {
-      LOG.warn("Failed to get base URL from MCP config: {}", e.getMessage());
-    }
-    return getBaseUrlFromSettings();
-  }
-
   private List<String> getAllowedOriginsFromConfig() {
     try {
       org.openmetadata.schema.api.configuration.MCPConfiguration mcpConfig =
@@ -509,36 +494,4 @@ public class McpServer implements McpServerProvider {
     return List.of();
   }
 
-  /**
-   * Get base URL from system settings, with fallback to localhost for development.
-   */
-  private String getBaseUrlFromSettings() {
-    try {
-      org.openmetadata.service.jdbi3.SystemRepository systemRepository =
-          Entity.getSystemRepository();
-      if (systemRepository != null) {
-        org.openmetadata.schema.settings.Settings settings =
-            systemRepository.getOMBaseUrlConfigInternal();
-        if (settings != null && settings.getConfigValue() != null) {
-          org.openmetadata.schema.api.configuration.OpenMetadataBaseUrlConfiguration urlConfig =
-              (org.openmetadata.schema.api.configuration.OpenMetadataBaseUrlConfiguration)
-                  settings.getConfigValue();
-          if (urlConfig != null && urlConfig.getOpenMetadataUrl() != null) {
-            String url = urlConfig.getOpenMetadataUrl();
-            LOG.info("Base URL retrieved from system settings: {}", url);
-            return url;
-          }
-        }
-      } else {
-        LOG.warn("SystemRepository is null during MCP initialization");
-      }
-    } catch (Exception e) {
-      LOG.warn("Could not get instance URL from SystemSettings, using fallback", e);
-    }
-    LOG.error(
-        "No base URL configured in MCP settings or system settings. "
-            + "Falling back to http://localhost:8585 — this is only suitable for local development. "
-            + "Configure a proper base URL for production deployments.");
-    return "http://localhost:8585";
-  }
 }

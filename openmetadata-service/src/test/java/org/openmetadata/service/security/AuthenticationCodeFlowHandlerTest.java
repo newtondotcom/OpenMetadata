@@ -75,6 +75,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.openmetadata.schema.TokenInterface;
+import org.openmetadata.schema.api.configuration.MCPConfiguration;
 import org.openmetadata.schema.api.security.AuthenticationConfiguration;
 import org.openmetadata.schema.api.security.AuthorizerConfiguration;
 import org.openmetadata.schema.auth.RefreshToken;
@@ -95,6 +96,7 @@ import org.openmetadata.service.exception.EntityNotFoundException;
 import org.openmetadata.service.jdbi3.CollectionDAO;
 import org.openmetadata.service.jdbi3.TokenRepository;
 import org.openmetadata.service.jdbi3.UserRepository;
+import org.openmetadata.service.security.auth.SecurityConfigurationManager;
 import org.openmetadata.service.security.session.SessionService;
 import org.openmetadata.service.security.session.SessionStatus;
 import org.openmetadata.service.security.session.UserSession;
@@ -1717,6 +1719,26 @@ class AuthenticationCodeFlowHandlerTest {
     assertFalse((Boolean) method.invoke(handler, TEST_SERVER_URL + "/auth/callback"));
     assertFalse((Boolean) method.invoke(handler, "https://evil.example.com" + MCP_CALLBACK));
     assertFalse((Boolean) method.invoke(handler, (Object) null));
+  }
+
+  @Test
+  void isMcpRedirectUri_matchesMcpConfigurationBaseUrl() throws Exception {
+    AuthenticationCodeFlowHandler handler = createLoginHandler();
+    Method method =
+        AuthenticationCodeFlowHandler.class.getDeclaredMethod("isMcpRedirectUri", String.class);
+    method.setAccessible(true);
+
+    try (MockedStatic<SecurityConfigurationManager> security =
+        mockStatic(SecurityConfigurationManager.class)) {
+      security
+          .when(SecurityConfigurationManager::getCurrentMcpConfig)
+          .thenReturn(
+              new MCPConfiguration().withBaseUrl("https://openmetadata.example.com/"));
+
+      assertTrue(
+          (Boolean) method.invoke(handler, "https://openmetadata.example.com" + MCP_CALLBACK));
+      assertTrue((Boolean) method.invoke(handler, TEST_SERVER_URL + MCP_CALLBACK));
+    }
   }
 
   @Test
