@@ -134,10 +134,13 @@ public class SecurityConfigurationManager {
               : "null");
     }
 
-    // MCP config is optional — load separately so its absence doesn't affect auth config
+    // MCP config is optional — load separately so its absence doesn't affect auth config.
+    // Prefer a non-blank deployment baseUrl when the stored row left it empty (common before
+    // mcpConfiguration lived in openmetadata.yaml): otherwise OAuth discovery keeps localhost.
     currentMcpConfig =
-        SettingsCache.getSettingOrDefault(
-            MCP_CONFIGURATION, config.getMcpConfiguration(), MCPConfiguration.class);
+        withDeploymentBaseUrlFallback(
+            SettingsCache.getSettingOrDefault(
+                MCP_CONFIGURATION, deploymentMcpConfiguration(), MCPConfiguration.class));
   }
 
   public SecurityConfiguration getCurrentSecurityConfig() {
@@ -184,7 +187,37 @@ public class SecurityConfigurationManager {
     return ConfigSources.deployment()
         .flatMap(deployment -> deployment.setting(MCP_CONFIGURATION))
         .map(setting -> JsonUtils.convertValue(setting.value(), MCPConfiguration.class))
-        .orElse(null);
+        .orElseGet(() -> config == null ? null : config.getMcpConfiguration());
+  }
+
+  /**
+   * When the database row has no {@code baseUrl} but the deployment/YAML does (including {@code
+   * MCP_BASE_URL}), keep the rest of the stored setting and use the deployed origin for OAuth
+   * issuer URLs. Does not mutate the cached settings object.
+   */
+  private MCPConfiguration withDeploymentBaseUrlFallback(MCPConfiguration stored) {
+    if (hasNonBlankBaseUrl(stored)) {
+      return stored;
+    }
+    MCPConfiguration deployment = deploymentMcpConfiguration();
+    if (!hasNonBlankBaseUrl(deployment)) {
+      return stored;
+    }
+    MCPConfiguration merged =
+        stored == null
+            ? new MCPConfiguration()
+            : JsonUtils.readValue(JsonUtils.pojoToJson(stored), MCPConfiguration.class);
+    merged.setBaseUrl(deployment.getBaseUrl().trim());
+    LOG.info(
+        "MCP baseUrl was empty in stored settings; using deployment value {}",
+        merged.getBaseUrl());
+    return merged;
+  }
+
+  private static boolean hasNonBlankBaseUrl(MCPConfiguration mcpConfig) {
+    return mcpConfig != null
+        && mcpConfig.getBaseUrl() != null
+        && !mcpConfig.getBaseUrl().trim().isEmpty();
   }
 
   /** Synchronized: a reload requested by the API and one noticed by the watcher must not overlap. */
@@ -198,8 +231,9 @@ public class SecurityConfigurationManager {
                   AUTHENTICATION_CONFIGURATION, AuthenticationConfiguration.class),
               SettingsCache.getSetting(AUTHORIZER_CONFIGURATION, AuthorizerConfiguration.class));
       currentMcpConfig =
-          SettingsCache.getSettingOrDefault(
-              MCP_CONFIGURATION, deploymentMcpConfiguration(), MCPConfiguration.class);
+          withDeploymentBaseUrlFallback(
+              SettingsCache.getSettingOrDefault(
+                  MCP_CONFIGURATION, deploymentMcpConfiguration(), MCPConfiguration.class));
       applyToApplication();
       notifyListeners();
 

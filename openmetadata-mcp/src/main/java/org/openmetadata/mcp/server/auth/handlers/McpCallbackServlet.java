@@ -26,12 +26,7 @@ import org.openmetadata.mcp.server.auth.provider.UserSSOOAuthProvider;
 import org.openmetadata.mcp.server.auth.repository.McpPendingAuthRequestRepository;
 import org.openmetadata.mcp.server.auth.util.UriUtils;
 import org.openmetadata.mcp.server.auth.validators.IdTokenValidator;
-import org.openmetadata.schema.api.configuration.MCPConfiguration;
-import org.openmetadata.schema.api.configuration.OpenMetadataBaseUrlConfiguration;
 import org.openmetadata.schema.services.connections.metadata.AuthProvider;
-import org.openmetadata.schema.settings.Settings;
-import org.openmetadata.service.Entity;
-import org.openmetadata.service.jdbi3.SystemRepository;
 import org.openmetadata.service.jdbi3.oauth.OAuthRecords.McpPendingAuthRequest;
 import org.openmetadata.service.security.AuthenticationCodeFlowHandler;
 import org.openmetadata.service.security.OidcIdentityResolver.ResolvedOidcIdentity;
@@ -110,35 +105,7 @@ public class McpCallbackServlet extends HttpServlet {
   }
 
   private String resolveBaseUrl() {
-    try {
-      MCPConfiguration mcpConfig = SecurityConfigurationManager.getCurrentMcpConfig();
-      if (mcpConfig != null && mcpConfig.getBaseUrl() != null) {
-        return mcpConfig.getBaseUrl();
-      }
-    } catch (Exception e) {
-      LOG.warn("Failed to get base URL from MCP config", e);
-    }
-    try {
-      SystemRepository systemRepository = Entity.getSystemRepository();
-      if (systemRepository != null) {
-        Settings settings = systemRepository.getOMBaseUrlConfigInternal();
-        if (settings != null && settings.getConfigValue() != null) {
-          OpenMetadataBaseUrlConfiguration urlConfig =
-              (OpenMetadataBaseUrlConfiguration) settings.getConfigValue();
-          if (urlConfig != null && urlConfig.getOpenMetadataUrl() != null) {
-            return urlConfig.getOpenMetadataUrl();
-          }
-        }
-      }
-    } catch (Exception e) {
-      LOG.warn("Could not get base URL from system settings", e);
-    }
-
-    LOG.error(
-        "No base URL configured in MCP settings or system settings. "
-            + "Falling back to http://localhost:8585 — this is only suitable for local development. "
-            + "Configure a proper base URL for production deployments.");
-    return "http://localhost:8585";
+    return org.openmetadata.mcp.server.auth.util.McpPublicBaseUrl.resolveFromStore();
   }
 
   private IdTokenValidator getIdTokenValidator(AuthenticationCodeFlowHandler ssoHandler) {
